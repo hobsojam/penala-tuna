@@ -395,8 +395,8 @@ static VibratoInfo detect_vibrato() {
     }
     if (best_acf < 0.4f * power) return {false, 0.0f, 0.0f};  // weak periodicity
 
-    float mn = buf[0], mx = buf[0];
-    for (int i = 1; i < n; i++) { mn = std::min(mn, buf[i]); mx = std::max(mx, buf[i]); }
+    float mn = 1e9f, mx = -1e9f;
+    for (int i = 0; i < n; i++) { mn = std::min(mn, buf[i]); mx = std::max(mx, buf[i]); }
     float depth = mx - mn;
     if (depth < 20.0f) return {false, 0.0f, 0.0f};  // < ±10 cents: too subtle
 
@@ -484,7 +484,7 @@ static void draw_trace(HDC hdc) {
 
     VibratoInfo vibrato = detect_vibrato();
     if (vibrato.detected) {
-        wchar_t vbuf[48];
+        static wchar_t vbuf[48];
         swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
                    vibrato.rate_hz, vibrato.depth_cents / 2.0f);
         SetTextColor(hdc, RGB(130, 100, 180));
