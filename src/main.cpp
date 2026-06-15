@@ -16,10 +16,14 @@
 static const int  CHROM_DIAT[12] = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
 static const bool IS_FLAT[12]    = { 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0 };
 static const bool IS_SHARP[12]   = { 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 };
+// Piano strip key layout: white-key index within octave (-1 = black key)
+static const int PC_TO_WHITE[12]   = {  0,-1, 1,-1, 2, 3,-1, 4,-1, 5,-1, 6 };
+// For black keys: white-key index immediately to their left, within octave
+static const int PC_BLACK_LEFT[12] = { -1, 0,-1, 1,-1,-1, 3,-1, 4,-1, 5,-1 };
 
 // ── layout constants ──────────────────────────────────────────────────────────
 static const int CX         = 820;
-static const int CY         = 736;
+static const int CY         = 750;
 
 static const int STAFF_LEFT = 145;
 static const int STAFF_RIGHT= 755;
@@ -45,7 +49,17 @@ static const int TRACE_H    = 148;
 static const int HARM_TOP   = 582;   // harmonic bars
 static const int HARM_H     = 65;
 
-static const int HELP_Y     = 706;
+static const int PIANO_LO   = 48;    // C3 — lowest key shown
+static const int PIANO_HI   = 71;    // B4 — highest key shown
+static const int PIANO_NWHITE = 14;  // white keys in [PIANO_LO, PIANO_HI]
+static const int PIANO_X    = 20;
+static const int PIANO_Y    = 656;
+static const int PIANO_H    = 54;    // white key height
+static const int PIANO_WKW  = (CX - 40) / PIANO_NWHITE;  // white key width
+static const int PIANO_BKW  = PIANO_WKW * 3 / 5;         // black key width
+static const int PIANO_BKH  = PIANO_H  * 3 / 5;          // black key height
+
+static const int HELP_Y     = 722;
 
 // ── pitch history ─────────────────────────────────────────────────────────────
 static constexpr int   HISTORY_MAX     = 780;  // matches strip width in pixels
@@ -480,6 +494,97 @@ static void draw_trace(HDC hdc) {
     SelectObject(hdc, of);
 }
 
+// ── piano keyboard strip ──────────────────────────────────────────────────────
+static int piano_white_idx(int midi) {
+    if (midi < PIANO_LO || midi > PIANO_HI) return -1;
+    int pc = midi % 12;
+    if (PC_TO_WHITE[pc] < 0) return -1;
+    return (midi - PIANO_LO) / 12 * 7 + PC_TO_WHITE[pc];
+}
+
+static int piano_black_lx(int midi) {
+    if (midi < PIANO_LO || midi > PIANO_HI) return -1;
+    int pc = midi % 12;
+    if (PC_BLACK_LEFT[pc] < 0) return -1;
+    int left_w = (midi - PIANO_LO) / 12 * 7 + PC_BLACK_LEFT[pc];
+    return PIANO_X + (left_w + 1) * PIANO_WKW - PIANO_BKW / 2;
+}
+
+static int piano_hit_test(POINT pt) {
+    if (pt.y < PIANO_Y || pt.y >= PIANO_Y + PIANO_H) return -1;
+    if (pt.x < PIANO_X || pt.x >= PIANO_X + PIANO_NWHITE * PIANO_WKW) return -1;
+    if (pt.y < PIANO_Y + PIANO_BKH) {  // upper zone: black keys take priority
+        for (int m = PIANO_LO; m <= PIANO_HI; m++) {
+            int bx = piano_black_lx(m);
+            if (bx >= 0 && pt.x >= bx && pt.x < bx + PIANO_BKW) return m;
+        }
+    }
+    int wi = (pt.x - PIANO_X) / PIANO_WKW;
+    for (int m = PIANO_LO; m <= PIANO_HI; m++)
+        if (piano_white_idx(m) == wi) return m;
+    return -1;
+}
+
+static void draw_piano_strip(HDC hdc) {
+    // White keys
+    for (int midi = PIANO_LO; midi <= PIANO_HI; midi++) {
+        int wi = piano_white_idx(midi);
+        if (wi < 0) continue;
+        int kx = PIANO_X + wi * PIANO_WKW;
+
+        bool is_target = (midi == g_target);
+        bool in_scale  = false;
+        if (g_mode == Mode::SCALE)
+            for (int i = 0; i < g_scale_count; i++)
+                if (g_scale_notes[i] == midi) { in_scale = true; break; }
+
+        COLORREF fill = is_target ? RGB(80, 160, 220)
+                      : in_scale  ? RGB(195, 218, 245)
+                      :             RGB(252, 252, 254);
+        HBRUSH br = CreateSolidBrush(fill);
+        HPEN   pn = CreatePen(PS_SOLID, 1, RGB(160, 162, 172));
+        HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
+        HPEN   op = (HPEN)SelectObject(hdc, pn);
+        Rectangle(hdc, kx, PIANO_Y, kx + PIANO_WKW, PIANO_Y + PIANO_H);
+        SelectObject(hdc, ob); SelectObject(hdc, op);
+        DeleteObject(br); DeleteObject(pn);
+
+        if (midi % 12 == 0) {  // octave label on C keys
+            HFONT of = (HFONT)SelectObject(hdc, g_fBody);
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, is_target ? RGB(255,255,255) : RGB(160, 160, 170));
+            wchar_t lbl[4];
+            swprintf_s(lbl, L"C%d", midi / 12 - 1);
+            RECT lr = { kx, PIANO_Y + PIANO_H - 18, kx + PIANO_WKW, PIANO_Y + PIANO_H };
+            DrawTextW(hdc, lbl, -1, &lr, DT_CENTER | DT_SINGLELINE);
+            SelectObject(hdc, of);
+        }
+    }
+
+    // Black keys drawn on top
+    for (int midi = PIANO_LO; midi <= PIANO_HI; midi++) {
+        int bx = piano_black_lx(midi);
+        if (bx < 0) continue;
+
+        bool is_target = (midi == g_target);
+        bool in_scale  = false;
+        if (g_mode == Mode::SCALE)
+            for (int i = 0; i < g_scale_count; i++)
+                if (g_scale_notes[i] == midi) { in_scale = true; break; }
+
+        COLORREF fill = is_target ? RGB(50, 120, 200)
+                      : in_scale  ? RGB(55, 85, 145)
+                      :             RGB(28, 28, 32);
+        HBRUSH br = CreateSolidBrush(fill);
+        HPEN   np = CreatePen(PS_NULL, 0, 0);
+        HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
+        HPEN   op = (HPEN)SelectObject(hdc, np);
+        Rectangle(hdc, bx, PIANO_Y, bx + PIANO_BKW, PIANO_Y + PIANO_BKH);
+        SelectObject(hdc, ob); SelectObject(hdc, op);
+        DeleteObject(br); DeleteObject(np);
+    }
+}
+
 // ── harmonic bars ─────────────────────────────────────────────────────────────
 static void draw_harmonic_bars(HDC hdc) {
     const int BAR_W   = 48;
@@ -762,6 +867,7 @@ static void draw_ui(HDC hdc) {
         float cents_pc = cents - std::roundf(cents / 1200.0f) * 1200.0f;
         draw_cents_bar(hdc, cents_pc);
         if (g_has_spec) draw_harmonic_bars(hdc);
+        draw_piano_strip(hdc);
 
     } else {
         SelectObject(hdc, g_fLabel);
@@ -790,6 +896,9 @@ static void draw_ui(HDC hdc) {
 
     // ── Pitch history trace ───────────────────────────────────────────────────
     draw_trace(hdc);
+
+    // ── Piano strip ───────────────────────────────────────────────────────────
+    draw_piano_strip(hdc);
 
     // ── Help ─────────────────────────────────────────────────────────────────
     SelectObject(hdc, g_fBody);
@@ -954,6 +1063,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_LBUTTONDOWN: {
         POINT pt = { LOWORD(lp), HIWORD(lp) };
+        if (g_mode == Mode::FREE) {
+            int piano_midi = piano_hit_test(pt);
+            if (piano_midi >= 0) { set_target(piano_midi); return 0; }
+        }
         if (in_staff_select(pt) && g_mode == Mode::FREE)
             set_target(y_to_midi(pt.y, g_target >= 60));
         else if (PtInRect(&g_note_hit, pt))
@@ -966,7 +1079,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             POINT pt;
             GetCursorPos(&pt);
             ScreenToClient(hwnd, &pt);
-            if (in_staff_select(pt) || PtInRect(&g_note_hit, pt)) {
+            bool over_piano = (g_mode == Mode::FREE && piano_hit_test(pt) >= 0);
+            if (in_staff_select(pt) || PtInRect(&g_note_hit, pt) || over_piano) {
                 SetCursor(LoadCursorW(nullptr, IDC_HAND));
                 return TRUE;
             }
