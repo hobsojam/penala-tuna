@@ -485,10 +485,12 @@ static void draw_trace(HDC hdc) {
     VibratoInfo vibrato = detect_vibrato();
     if (vibrato.detected) {
         static wchar_t vbuf[48];
-        swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
-                   vibrato.rate_hz, vibrato.depth_cents / 2.0f);
-        SetTextColor(hdc, RGB(130, 100, 180));
-        TextOutW(hdc, TX + 5, TY + TH - 20, vbuf, (int)wcslen(vbuf));
+        int len = swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
+                             vibrato.rate_hz, vibrato.depth_cents / 2.0f);
+        if (len > 0) {
+            SetTextColor(hdc, RGB(130, 100, 180));
+            TextOutW(hdc, TX + 5, TY + TH - 20, vbuf, len);
+        }
     }
 
     SelectObject(hdc, of);
