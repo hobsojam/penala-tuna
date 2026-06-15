@@ -78,7 +78,6 @@ static bool             g_has_spec = false;
 static short            g_samples[2048];
 
 struct VibratoInfo { bool detected; float rate_hz; float depth_cents; };
-static VibratoInfo      g_vibrato  = {};
 
 static constexpr int HOLD_FRAMES = 20;
 
@@ -469,10 +468,11 @@ static void draw_trace(HDC hdc) {
     TextOutW(hdc, TX + 5, TY + TH / 2 - 24, L"+1",  2);
     TextOutW(hdc, TX + 5, TY + TH / 2 + 12, L"-1",  2);
 
-    if (g_vibrato.detected) {
+    VibratoInfo vibrato = detect_vibrato();
+    if (vibrato.detected) {
         wchar_t vbuf[48];
         swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
-                   g_vibrato.rate_hz, g_vibrato.depth_cents / 2.0f);
+                   vibrato.rate_hz, vibrato.depth_cents / 2.0f);
         SetTextColor(hdc, RGB(130, 100, 180));
         TextOutW(hdc, TX + 5, TY + TH - 20, vbuf, (int)wcslen(vbuf));
     }
@@ -891,8 +891,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 history_push(SILENCE_SENTINEL);
             }
         }
-
-        g_vibrato = detect_vibrato();
 
         // Hold timer: count consecutive ticks within ±15ct (octave-corrected)
         if (g_smoothed > 0.0f) {
