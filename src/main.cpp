@@ -351,9 +351,10 @@ static void draw_cents_bar(HDC hdc, float cents) {
 // Autocorrelation over the most recent contiguous run of cents values.
 // Sampling rate = 20 Hz (50ms timer); detectable vibrato range ≈ 2–10 Hz.
 static VibratoInfo detect_vibrato() {
-    float buf[HISTORY_MAX];
+    constexpr int MAX_ANALYSIS = 100;  // 5 s at 20 Hz — enough for multiple cycles
+    float buf[MAX_ANALYSIS];
     int n = 0;
-    for (int i = 0; i < g_history_count; i++) {
+    for (int i = 0; i < g_history_count && n < MAX_ANALYSIS; i++) {
         int   idx = ((g_history_pos - 1 - i) % HISTORY_MAX + HISTORY_MAX) % HISTORY_MAX;
         float v   = g_history[idx];
         if (v > 9e8f) break;  // silence: only use the most recent unbroken run
