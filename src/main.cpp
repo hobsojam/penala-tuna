@@ -77,6 +77,9 @@ static HarmonicSpectrum g_spectrum = {};
 static bool             g_has_spec = false;
 static short            g_samples[2048];
 
+struct VibratoInfo { bool detected; float rate_hz; float depth_cents; };
+static VibratoInfo      g_vibrato  = {};
+
 static constexpr int HOLD_FRAMES = 20;
 
 // Bounding rect of the target note head — updated each paint, used for click hit-test.
@@ -344,6 +347,48 @@ static void draw_cents_bar(HDC hdc, float cents) {
     SelectObject(hdc, of);
 }
 
+// ── vibrato detection ─────────────────────────────────────────────────────────
+// Autocorrelation over the most recent contiguous run of cents values.
+// Sampling rate = 20 Hz (50ms timer); detectable vibrato range ≈ 2–10 Hz.
+static VibratoInfo detect_vibrato() {
+    float buf[HISTORY_MAX];
+    int n = 0;
+    for (int i = 0; i < g_history_count; i++) {
+        int   idx = ((g_history_pos - 1 - i) % HISTORY_MAX + HISTORY_MAX) % HISTORY_MAX;
+        float v   = g_history[idx];
+        if (v > 9e8f) break;  // silence: only use the most recent unbroken run
+        buf[n++] = v;
+    }
+    if (n < 30) return {false, 0.0f, 0.0f};  // need ≥1.5 s of continuous pitch
+
+    float mean = 0.0f;
+    for (int i = 0; i < n; i++) mean += buf[i];
+    mean /= n;
+    for (int i = 0; i < n; i++) buf[i] -= mean;
+
+    float power = 0.0f;
+    for (int i = 0; i < n; i++) power += buf[i] * buf[i];
+    power /= n;
+    if (power < 25.0f) return {false, 0.0f, 0.0f};  // < 5 cents RMS: pitch too flat
+
+    float best_acf = -1e9f;
+    int   best_lag = 2;
+    for (int lag = 2; lag <= 10 && lag < n / 2; lag++) {
+        float r = 0.0f;
+        for (int i = 0; i < n - lag; i++) r += buf[i] * buf[i + lag];
+        r /= (n - lag);
+        if (r > best_acf) { best_acf = r; best_lag = lag; }
+    }
+    if (best_acf < 0.4f * power) return {false, 0.0f, 0.0f};  // weak periodicity
+
+    float mn = buf[0], mx = buf[0];
+    for (int i = 1; i < n; i++) { mn = std::min(mn, buf[i]); mx = std::max(mx, buf[i]); }
+    float depth = mx - mn;
+    if (depth < 20.0f) return {false, 0.0f, 0.0f};  // < ±10 cents: too subtle
+
+    return {true, 20.0f / (float)best_lag, depth};
+}
+
 // ── pitch history trace ───────────────────────────────────────────────────────
 static void draw_trace(HDC hdc) {
     const int TX  = 20;
@@ -422,6 +467,15 @@ static void draw_trace(HDC hdc) {
     // Semitone axis label
     TextOutW(hdc, TX + 5, TY + TH / 2 - 24, L"+1",  2);
     TextOutW(hdc, TX + 5, TY + TH / 2 + 12, L"-1",  2);
+
+    if (g_vibrato.detected) {
+        wchar_t vbuf[48];
+        swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
+                   g_vibrato.rate_hz, g_vibrato.depth_cents / 2.0f);
+        SetTextColor(hdc, RGB(130, 100, 180));
+        TextOutW(hdc, TX + 5, TY + TH - 20, vbuf, (int)wcslen(vbuf));
+    }
+
     SelectObject(hdc, of);
 }
 
@@ -836,6 +890,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 history_push(SILENCE_SENTINEL);
             }
         }
+
+        g_vibrato = detect_vibrato();
 
         // Hold timer: count consecutive ticks within ±15ct (octave-corrected)
         if (g_smoothed > 0.0f) {
