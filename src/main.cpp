@@ -89,6 +89,7 @@ static float            g_smoothed = 0.0f;
 static int              g_silent   = 0;
 static HarmonicSpectrum g_spectrum = {};
 static bool             g_has_spec = false;
+static Formants         g_formants = {0.f, 0.f, false};
 static short            g_samples[2048];
 
 struct VibratoInfo { bool detected; float rate_hz; float depth_cents; };
@@ -406,7 +407,7 @@ static VibratoInfo detect_vibrato() {
 // ── pitch history trace ───────────────────────────────────────────────────────
 static void draw_trace(HDC hdc) {
     const int TX  = 20;
-    const int TW  = CX - 40;
+    const int TW  = 470;  // right ~490; vowel chart occupies 500–800
     const int TH  = TRACE_H;
     const int TY  = TRACE_Y;
     const int MID = TY + TH / 2;           // y of target (0 cents)
@@ -502,6 +503,81 @@ static void draw_trace(HDC hdc) {
             TextOutW(hdc, TX + TW - 110, TY + TH - 20, gbuf, len);
         }
     }
+
+    SelectObject(hdc, of);
+}
+
+// ── vowel formant chart ───────────────────────────────────────────────────────
+static void draw_vowel_chart(HDC hdc) {
+    const int VX = 500;
+    const int VY = TRACE_Y;
+    const int VW = 300;
+    const int VH = TRACE_H;
+
+    RECT vr = { VX, VY, VX + VW, VY + VH };
+    HBRUSH bg = CreateSolidBrush(RGB(242, 244, 248));
+    FillRect(hdc, &vr, bg);
+    DeleteObject(bg);
+
+    HPEN bp = CreatePen(PS_SOLID, 1, RGB(200, 205, 215));
+    HPEN obp = (HPEN)SelectObject(hdc, bp);
+    SelectObject(hdc, GetStockObject(NULL_BRUSH));
+    Rectangle(hdc, VX, VY, VX + VW, VY + VH);
+    SelectObject(hdc, obp); DeleteObject(bp);
+
+    // Axes: F1 200–1000 Hz vertical (low=top), F2 3000–700 Hz horizontal (high=left)
+    const float F1_MIN = 200.f, F1_MAX = 1000.f;
+    const float F2_MIN = 700.f, F2_MAX = 3000.f;
+    auto vx = [&](float f2) { return VX + (int)(VW * (F2_MAX - f2) / (F2_MAX - F2_MIN)); };
+    auto vy = [&](float f1) { return VY + (int)(VH * (f1 - F1_MIN) / (F1_MAX - F1_MIN)); };
+
+    // Reference vowels {F1, F2, label, label_len}
+    struct Vowel { float f1, f2; const wchar_t* label; int llen; };
+    static const Vowel vowels[] = {
+        {270.f, 2600.f, L"i",      1},
+        {430.f, 2200.f, L"e",      1},
+        {600.f, 1800.f, L"ɛ", 1},  // ɛ
+        {850.f, 1700.f, L"æ", 1},  // æ
+        {800.f, 1100.f, L"ɑ", 1},  // ɑ
+        {450.f, 950.f,  L"o",      1},
+        {280.f, 850.f,  L"u",      1},
+    };
+
+    HFONT of = (HFONT)SelectObject(hdc, g_fBody);
+    SetBkMode(hdc, TRANSPARENT);
+
+    for (const auto& v : vowels) {
+        int cx = vx(v.f2);
+        int cy = vy(v.f1);
+        HPEN rp = CreatePen(PS_SOLID, 1, RGB(180, 190, 210));
+        HBRUSH rb = CreateSolidBrush(RGB(210, 220, 235));
+        SelectObject(hdc, rp); SelectObject(hdc, rb);
+        Ellipse(hdc, cx - 4, cy - 4, cx + 4, cy + 4);
+        SelectObject(hdc, GetStockObject(NULL_PEN));
+        SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        DeleteObject(rp); DeleteObject(rb);
+        SetTextColor(hdc, RGB(120, 130, 160));
+        TextOutW(hdc, cx + 5, cy - 7, v.label, v.llen);
+    }
+
+    // Live formant dot
+    if (g_formants.valid) {
+        int fx = std::clamp(vx(g_formants.f2_hz), VX + 2, VX + VW - 3);
+        int fy = std::clamp(vy(g_formants.f1_hz), VY + 2, VY + VH - 3);
+        HPEN lp = CreatePen(PS_SOLID, 1, RGB(40, 110, 200));
+        HBRUSH lb = CreateSolidBrush(RGB(70, 150, 240));
+        SelectObject(hdc, lp); SelectObject(hdc, lb);
+        Ellipse(hdc, fx - 6, fy - 6, fx + 6, fy + 6);
+        SelectObject(hdc, GetStockObject(NULL_PEN));
+        SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        DeleteObject(lp); DeleteObject(lb);
+    }
+
+    // Title + axis hints
+    SetTextColor(hdc, RGB(160, 165, 180));
+    TextOutW(hdc, VX + 5,        VY + 4,       L"Vowel space", 11);
+    TextOutW(hdc, VX + 5,        VY + VH - 18, L"F2→",    3);
+    TextOutW(hdc, VX + VW - 22,  VY + VH - 18, L"F1↓",    3);
 
     SelectObject(hdc, of);
 }
@@ -906,8 +982,9 @@ static void draw_ui(HDC hdc) {
         }
     }
 
-    // ── Pitch history trace ───────────────────────────────────────────────────
+    // ── Pitch history trace + vowel chart ────────────────────────────────────
     draw_trace(hdc);
+    draw_vowel_chart(hdc);
 
     // ── Piano strip ───────────────────────────────────────────────────────────
     draw_piano_strip(hdc);
@@ -1002,12 +1079,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 g_smoothed = smooth_pitch(g_smoothed, raw);
                 g_silent   = 0;
                 g_spectrum = g_detector.harmonics(g_samples, 2048, g_smoothed);
+                g_formants = g_detector.formants(g_samples, 2048);
                 g_has_spec = true;
                 history_push(cents_error(g_smoothed, midi_to_freq(g_target)));
             } else {
                 if (++g_silent > HOLD_FRAMES) {
-                    g_smoothed = 0.0f;
-                    g_has_spec = false;
+                    g_smoothed     = 0.0f;
+                    g_has_spec     = false;
+                    g_formants.valid = false;
                 }
                 history_push(SILENCE_SENTINEL);
             }
