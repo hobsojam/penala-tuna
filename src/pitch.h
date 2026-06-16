@@ -12,4 +12,11 @@ public:
     // Returns spectral power at the first 5 harmonics of `fundamental`.
     // Call only when detect() returned a valid frequency.
     HarmonicSpectrum harmonics(const short* samples, int count, float fundamental);
+
+    // RMS energy threshold below which detect() treats input as silence.
+    void  set_silence(float rms) { silence_ = rms; }
+    float silence()        const { return silence_; }
+
+private:
+    float silence_ = 0.0005f;
 };

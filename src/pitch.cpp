@@ -3,12 +3,11 @@
 #include <algorithm>
 
 namespace {
-    constexpr int   SR        = 44100;
-    constexpr int   WINDOW    = 2048;
-    constexpr int   MIN_LAG   = SR / 1200;              // ~37 samples  (~1200 Hz ceiling)
-    constexpr int   MAX_LAG   = SR / 60;                // 735 samples  (~60 Hz floor)
-    constexpr int   LAG_RANGE = MAX_LAG - MIN_LAG + 1;  // 699
-    constexpr float SILENCE   = 0.0005f;                 // RMS energy threshold
+    constexpr int SR        = 44100;
+    constexpr int WINDOW    = 2048;
+    constexpr int MIN_LAG   = SR / 1200;
+    constexpr int MAX_LAG   = SR / 60;
+    constexpr int LAG_RANGE = MAX_LAG - MIN_LAG + 1;
 }
 
 float PitchDetector::detect(const short* samples, int count) {
@@ -20,7 +19,7 @@ float PitchDetector::detect(const short* samples, int count) {
         x[i]    = samples[i] / 32768.0f;
         energy  += x[i] * x[i];
     }
-    if (energy / WINDOW < SILENCE) return 0.0f;
+    if (energy / WINDOW < silence_) return 0.0f;
 
     // Autocorrelation over the vocal lag range
     float acf[LAG_RANGE];

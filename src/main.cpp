@@ -493,6 +493,16 @@ static void draw_trace(HDC hdc) {
         }
     }
 
+    {
+        static wchar_t gbuf[32];
+        float db = 20.0f * std::log10f(g_detector.silence());
+        int len = swprintf_s(gbuf, L"Gate: %+.0f dB", db);
+        if (len > 0) {
+            SetTextColor(hdc, RGB(160, 165, 180));
+            TextOutW(hdc, TX + TW - 110, TY + TH - 20, gbuf, len);
+        }
+    }
+
     SelectObject(hdc, of);
 }
 
@@ -906,7 +916,7 @@ static void draw_ui(HDC hdc) {
     SelectObject(hdc, g_fBody);
     SetTextColor(hdc, RGB(165, 165, 175));
     static const wchar_t* help_text[] = {
-        L"Tab: mode    Click staff / L/R: set note    Up/Dn: octave    Space: replay    Enter: random    Q: quit",
+        L"Tab: mode    Click staff / L/R: set note    Up/Dn: octave    Space: replay    Enter: random    [ / ]: gate    Q: quit",
         L"Tab: mode    Space / Enter: new interval (plays root then target)    Q: quit",
         L"Tab: mode    Enter: new scale    Space: replay    hold in tune 2s to advance    Q: quit",
     };
@@ -1127,6 +1137,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case 'Q': case VK_ESCAPE:
             DestroyWindow(hwnd);
+            break;
+        case VK_OEM_4: // [  — lower noise gate
+            g_detector.set_silence(std::clamp(g_detector.silence() * 0.7f, 0.00005f, 0.005f));
+            break;
+        case VK_OEM_6: // ]  — raise noise gate
+            g_detector.set_silence(std::clamp(g_detector.silence() * 1.4f, 0.00005f, 0.005f));
             break;
         }
         return 0;
