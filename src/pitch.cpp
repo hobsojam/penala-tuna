@@ -53,7 +53,7 @@ float PitchDetector::detect(const short* samples, int count) {
     return static_cast<float>(SR) / refined;
 }
 
-Formants PitchDetector::formants(const short* samples, int count) {
+Formants PitchDetector::formants(const short* samples, int count) const {
     if (count < WINDOW) return {0.f, 0.f, false};
 
     // Pre-emphasis + windowing into float buffer
@@ -107,7 +107,7 @@ Formants PitchDetector::formants(const short* samples, int count) {
 
     // Previous two magnitude values for simple peak detection
     float prev2 = 0.f, prev1 = 0.f;
-    float prev2_f = 0.f, prev1_f = 0.f;
+    float prev1_f = 0.f;
 
     for (int bi = 1; bi < NBINS; bi++) {
         float freq = bi * GRID;
@@ -135,7 +135,7 @@ Formants PitchDetector::formants(const short* samples, int count) {
             }
         }
         prev2 = prev1; prev1 = mag;
-        prev2_f = prev1_f; prev1_f = freq;
+        prev1_f = freq;
     }
 
     if (f1 < 1.f || f2 < 1.f) return {0.f, 0.f, false};

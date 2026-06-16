@@ -20,7 +20,7 @@ public:
     HarmonicSpectrum harmonics(const short* samples, int count, float fundamental);
 
     // Returns LPC-derived F1/F2 formant estimates, or {0,0,false} if unreliable.
-    Formants formants(const short* samples, int count);
+    Formants formants(const short* samples, int count) const;
 
     // RMS energy threshold below which detect() treats input as silence.
     void  set_silence(float rms) { silence_ = rms; }

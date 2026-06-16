@@ -531,7 +531,6 @@ static void draw_vowel_chart(HDC hdc) {
     auto vx = [&](float f2) { return VX + (int)(VW * (F2_MAX - f2) / (F2_MAX - F2_MIN)); };
     auto vy = [&](float f1) { return VY + (int)(VH * (f1 - F1_MIN) / (F1_MAX - F1_MIN)); };
 
-    // Reference vowels {F1, F2, label, label_len}
     struct Vowel { float f1, f2; const wchar_t* label; int llen; };
     static const Vowel vowels[] = {
         {270.f, 2600.f, L"i",      1},
@@ -1028,7 +1027,7 @@ static const wchar_t* interval_name(int semi) {
 
 static void start_interval_mode() {
     g_root_midi   = random_note(48, 67);
-    g_interval_st = 1 + rand() % 11;
+    g_interval_st = random_note(1, 11);
     g_target      = std::clamp(g_root_midi + g_interval_st, 36, 84);
     g_smoothed = 0.0f; g_silent = 0; g_has_spec = false; g_hold_frames = 0;
     history_clear();
@@ -1049,7 +1048,7 @@ static void build_scale() {
 
 static void start_scale_mode() {
     g_scale_root = random_note(48, 60);
-    g_scale_type = rand() % 3;
+    g_scale_type = random_note(0, 2);
     build_scale();
     g_scale_idx  = 0;
     g_smoothed = 0.0f; g_silent = 0; g_has_spec = false; g_hold_frames = 0;
@@ -1066,7 +1065,6 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_CREATE:
         create_fonts();
-        srand((unsigned)GetTickCount());
         g_capture.start();
         set_target(random_note());
         SetTimer(hwnd, 1, 50, nullptr);
@@ -1112,7 +1110,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // While silently held (g_silent in 1..HOLD_FRAMES), keep g_hold_frames frozen.
 
         // Queued play: root → target sequence for interval mode
-        if (g_play_queued >= 0 && --g_play_delay <= 0) {
+        --g_play_delay;
+        if (g_play_queued >= 0 && g_play_delay <= 0) {
             g_player.play(midi_to_freq(g_play_queued), 1.2f);
             g_play_queued = -1;
         }
