@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <mutex>
+#include <span>
 #include <thread>
 #include <vector>
 
@@ -20,14 +21,14 @@ public:
     void start();
     void stop();
 
-    // Copies the latest `count` samples into dst.
-    // Returns count on success, 0 if not enough data yet.
-    int read_latest(short* dst, int count);
+    // Copies the latest dst.size() samples into dst.
+    // Returns the sample count on success, 0 if not enough data yet.
+    int read_latest(std::span<short> dst);
 
 private:
     HWAVEIN   wave_in = nullptr;
     HANDLE    event   = nullptr;
-    std::thread          thread;
+    std::jthread         thread;
     std::atomic<bool>    running{false};
 
     std::array<std::vector<short>, NUM_BUFS> bufs;

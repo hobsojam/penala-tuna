@@ -1,10 +1,12 @@
 #include "notes.h"
+#include <array>
 #include <cmath>
+#include <format>
 #include <random>
 #include <string>
 
 // Chromatic scale using flats for accidentals (more idiomatic for voice)
-static const char* NAMES[12] = {
+static constexpr std::array<const char*, 12> NAMES = {
     "C", "C♯", "D", "E♭", "E",
     "F", "F♯", "G", "A♭", "A", "B♭", "B"
 };
@@ -20,7 +22,7 @@ int freq_to_midi(float freq) {
 std::string note_name(int midi) {
     int pc     = ((midi % 12) + 12) % 12;
     int octave = midi / 12 - 1;
-    return std::string(NAMES[pc]) + std::to_string(octave);
+    return std::format("{}{}", NAMES[pc], octave);
 }
 
 float cents_error(float detected, float target) {
@@ -29,6 +31,6 @@ float cents_error(float detected, float target) {
 
 int random_note(int lo, int hi) {
     static std::mt19937 rng{std::random_device{}()};
-    std::uniform_int_distribution<int> dist(lo, hi);
+    std::uniform_int_distribution dist(lo, hi);
     return dist(rng);
 }

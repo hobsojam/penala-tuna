@@ -23,7 +23,7 @@ cd build && ctest --output-on-failure
 
 ## Stack
 
-- **Language:** C++17
+- **Language:** C++23
 - **Build:** CMake with MinGW-w64 (GCC 16, w64devkit). Build directory: `build/`.
 - **Audio I/O:** WinMM (`waveOut` / `waveIn`) — no external audio libs
 - **Pitch detection:** Autocorrelation with parabolic interpolation + octave-error guard

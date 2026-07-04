@@ -1,5 +1,6 @@
 #include "tone.h"
 #include <cmath>
+#include <numbers>
 
 void TonePlayer::play(float freq, float dur_sec) {
     stop();
@@ -13,7 +14,7 @@ void TonePlayer::play(float freq, float dur_sec) {
         if (i < fade)        env = (float)i / fade;
         else if (i > n-fade) env = (float)(n - i) / fade;
         buf[i] = static_cast<short>(32767.0f * 0.5f * env
-                 * std::sinf(2.0f * 3.14159265f * freq * i / SAMPLE_RATE));
+                 * std::sinf(2.0f * std::numbers::pi_v<float> * freq * i / SAMPLE_RATE));
     }
 
     WAVEFORMATEX fmt = {};
