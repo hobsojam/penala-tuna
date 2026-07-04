@@ -897,8 +897,8 @@ static void draw_ui(HDC hdc) {
         SelectObject(hdc, g_fLabel);
         COLORREF mc = (g_mode == Mode::FREE) ? RGB(170, 170, 180) : RGB(50, 120, 200);
         SetTextColor(hdc, mc);
-        const wchar_t* bn = BADGE[std::to_underlying(g_mode)];
-        TextOutW(hdc, CX - 110, 20, bn, (int)wcslen(bn));
+        std::wstring_view bn = BADGE[std::to_underlying(g_mode)];
+        TextOutW(hdc, CX - 110, 20, bn.data(), (int)bn.size());
     }
     if (g_player.is_playing()) {
         SelectObject(hdc, g_fLabel);
