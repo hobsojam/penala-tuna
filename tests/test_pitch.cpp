@@ -1,13 +1,15 @@
 #include "pitch.h"
 #include <cassert>
 #include <cmath>
-#include <cstdio>
+#include <cstdlib>
+#include <numbers>
+#include <print>
 #include <vector>
 
 static constexpr int SR = 44100;
 
 static void check(const char* label, bool ok) {
-    printf("  %s  %s\n", ok ? "PASS" : "FAIL", label);
+    std::println("  {}  {}", ok ? "PASS" : "FAIL", label);
     if (!ok) std::exit(1);
 }
 
@@ -15,12 +17,12 @@ static std::vector<short> make_sine(float freq, int n = 4096, float amp = 0.5f) 
     std::vector<short> buf(n);
     for (int i = 0; i < n; i++)
         buf[i] = static_cast<short>(32767.0f * amp
-                 * std::sinf(2.0f * 3.14159265f * freq * i / SR));
+                 * std::sinf(2.0f * std::numbers::pi_v<float> * freq * i / SR));
     return buf;
 }
 
 int main() {
-    printf("test_pitch\n");
+    std::println("test_pitch");
     PitchDetector det;
 
     // Silence → 0
@@ -62,6 +64,6 @@ int main() {
         check("sub-threshold quiet signal returns 0", f == 0.0f);
     }
 
-    printf("all passed\n");
+    std::println("all passed");
     return 0;
 }

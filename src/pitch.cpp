@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <algorithm>
+#include <numbers>
 
 namespace {
     constexpr int SR        = 44100;
@@ -10,7 +11,7 @@ namespace {
     constexpr int MAX_LAG   = SR / 60;
     constexpr int LAG_RANGE = MAX_LAG - MIN_LAG + 1;
 
-    constexpr float PI = 3.14159265f;
+    constexpr float PI = std::numbers::pi_v<float>;
     constexpr int   LPC_ORDER = 10;
 
     // Levinson-Durbin recursion for LPC coefficients a[1..LPC_ORDER].
@@ -85,7 +86,8 @@ float PitchDetector::detect(const short* samples, int count) const {
 
     // Octave-error guard: if half the lag has ≥85% of the peak's energy,
     // the true fundamental is an octave up (we grabbed a subharmonic).
-    if (int half_lag = (MIN_LAG + best) / 2 - MIN_LAG;
+    int peak_lag = MIN_LAG + best;
+    if (int half_lag = peak_lag / 2 - MIN_LAG;
         half_lag >= 0 && half_lag < LAG_RANGE && acf[half_lag] >= 0.85f * acf[best])
         best = half_lag;
 

@@ -1,16 +1,17 @@
 #include "notes.h"
 #include <cassert>
 #include <cmath>
-#include <cstdio>
+#include <cstdlib>
+#include <print>
 #include <string>
 
 static void check(const char* label, bool ok) {
-    printf("  %s  %s\n", ok ? "PASS" : "FAIL", label);
+    std::println("  {}  {}", ok ? "PASS" : "FAIL", label);
     if (!ok) std::exit(1);
 }
 
 int main() {
-    printf("test_notes\n");
+    std::println("test_notes");
 
     // midi_to_freq: A4 = 440 Hz exactly by definition
     check("A4 = 440 Hz",      std::abs(midi_to_freq(69) - 440.0f) < 0.001f);
@@ -45,6 +46,6 @@ int main() {
     check("semitone up ≈ +100 ct",
           std::abs(cents_error(midi_to_freq(70), midi_to_freq(69)) - 100.0f) < 0.01f);
 
-    printf("all passed\n");
+    std::println("all passed");
     return 0;
 }

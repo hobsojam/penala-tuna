@@ -1,6 +1,7 @@
 #include "notes.h"
 #include <array>
 #include <cmath>
+#include <format>
 #include <random>
 #include <string>
 
@@ -21,7 +22,7 @@ int freq_to_midi(float freq) {
 std::string note_name(int midi) {
     int pc     = ((midi % 12) + 12) % 12;
     int octave = midi / 12 - 1;
-    return std::string(NAMES[pc]) + std::to_string(octave);
+    return std::format("{}{}", NAMES[pc], octave);
 }
 
 float cents_error(float detected, float target) {

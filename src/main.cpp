@@ -4,7 +4,10 @@
 #include <array>
 #include <cmath>
 #include <algorithm>
+#include <numbers>
+#include <numeric>
 #include <string>
+#include <utility>
 
 #include "notes.h"
 #include "tone.h"
@@ -201,7 +204,7 @@ static int y_to_midi(int y, bool treble) {
 
 // True when pt is in the selectable left-staff zone (target column side).
 static bool in_staff_select(POINT pt) {
-    int divider = (TARGET_X + DETECTED_X) / 2;
+    int divider = std::midpoint(TARGET_X, DETECTED_X);
     return pt.x >= STAFF_LEFT && pt.x <= divider &&
            pt.y >= STAFF_TOP - 6 * STEP && pt.y <= STAFF_BOT + 6 * STEP;
 }
@@ -772,7 +775,7 @@ static void draw_hold_timer(HDC hdc, int cx, int cy) {
     } else if (frac > 0.01f) {
         // Partial clockwise fill from 12 o'clock using GDI Pie
         // GDI Arc/Pie goes CCW in MM_TEXT; to fill CW from top, swap endpoints.
-        float angle = 2.0f * 3.14159265f * frac;
+        float angle = 2.0f * std::numbers::pi_v<float> * frac;
         int   ex    = cx + (int)((R - 2) * std::sinf(angle));
         int   ey    = cy - (int)((R - 2) * std::cosf(angle));
         HBRUSH fb = CreateSolidBrush(RGB(60, 160, 220));
@@ -894,7 +897,7 @@ static void draw_ui(HDC hdc) {
         SelectObject(hdc, g_fLabel);
         COLORREF mc = (g_mode == Mode::FREE) ? RGB(170, 170, 180) : RGB(50, 120, 200);
         SetTextColor(hdc, mc);
-        const wchar_t* bn = BADGE[(int)g_mode];
+        const wchar_t* bn = BADGE[std::to_underlying(g_mode)];
         TextOutW(hdc, CX - 110, 20, bn, (int)wcslen(bn));
     }
     if (g_player.is_playing()) {
@@ -958,7 +961,7 @@ static void draw_ui(HDC hdc) {
     {
         HPEN gp = CreatePen(PS_DOT, 1, RGB(220, 220, 226));
         HPEN ogp = (HPEN)SelectObject(hdc, gp);
-        int mx = (TARGET_X + DETECTED_X) / 2;
+        int mx = std::midpoint(TARGET_X, DETECTED_X);
         MoveToEx(hdc, mx, STAFF_TOP - 30, nullptr);
         LineTo  (hdc, mx, STAFF_BOT  + 30);
         SelectObject(hdc, ogp); DeleteObject(gp);
@@ -1001,8 +1004,8 @@ static void draw_ui(HDC hdc) {
         L"Tab: mode    Space / Enter: new interval (plays root then target)    Q: quit",
         L"Tab: mode    Enter: new scale    Space: replay    hold in tune 2s to advance    Q: quit",
     };
-    TextOutW(hdc, 20, HELP_Y, help_text[(int)g_mode],
-             (int)wcslen(help_text[(int)g_mode]));
+    const wchar_t* help = help_text[std::to_underlying(g_mode)];
+    TextOutW(hdc, 20, HELP_Y, help, (int)wcslen(help));
 
     SelectObject(hdc, of);
 }
@@ -1066,7 +1069,7 @@ static void start_scale_mode() {
 
 // ── message handlers ──────────────────────────────────────────────────────────
 static void update_pitch_state() {
-    if (g_capture.read_latest(g_samples.data(), 2048) != 2048) return;
+    if (g_capture.read_latest(g_samples) != (int)g_samples.size()) return;
 
     float raw = g_detector.detect(g_samples.data(), 2048);
     if (raw > 0.0f) {
@@ -1176,15 +1179,16 @@ static bool on_setcursor(HWND hwnd, LPARAM lp) {
 }
 
 static void on_keydown(HWND hwnd, WPARAM wp) {
+    using enum Mode;
     switch (wp) {
     case VK_TAB:
-        g_mode = (Mode)(((int)g_mode + 1) % (int)Mode::COUNT);
-        if      (g_mode == Mode::INTERVAL) start_interval_mode();
-        else if (g_mode == Mode::SCALE)    start_scale_mode();
-        else                               set_target(random_note());
+        g_mode = (Mode)((std::to_underlying(g_mode) + 1) % std::to_underlying(COUNT));
+        if      (g_mode == INTERVAL) start_interval_mode();
+        else if (g_mode == SCALE)    start_scale_mode();
+        else                         set_target(random_note());
         break;
     case VK_SPACE:
-        if (g_mode == Mode::INTERVAL) {
+        if (g_mode == INTERVAL) {
             // Replay root → target sequence
             g_player.play(midi_to_freq(g_root_midi), 0.8f);
             g_play_queued = g_target;
@@ -1194,21 +1198,21 @@ static void on_keydown(HWND hwnd, WPARAM wp) {
         }
         break;
     case VK_RETURN:
-        if      (g_mode == Mode::INTERVAL) start_interval_mode();
-        else if (g_mode == Mode::SCALE)    start_scale_mode();
-        else                               set_target(random_note());
+        if      (g_mode == INTERVAL) start_interval_mode();
+        else if (g_mode == SCALE)    start_scale_mode();
+        else                         set_target(random_note());
         break;
     case VK_UP:
-        if (g_mode == Mode::FREE) set_target(std::min(g_target + 12, 84));
+        if (g_mode == FREE) set_target(std::min(g_target + 12, 84));
         break;
     case VK_DOWN:
-        if (g_mode == Mode::FREE) set_target(std::max(g_target - 12, 36));
+        if (g_mode == FREE) set_target(std::max(g_target - 12, 36));
         break;
     case VK_RIGHT:
-        if (g_mode == Mode::FREE) set_target(std::min(g_target + 1, 84));
+        if (g_mode == FREE) set_target(std::min(g_target + 1, 84));
         break;
     case VK_LEFT:
-        if (g_mode == Mode::FREE) set_target(std::max(g_target - 1, 36));
+        if (g_mode == FREE) set_target(std::max(g_target - 1, 36));
         break;
     case 'Q': case VK_ESCAPE:
         DestroyWindow(hwnd);

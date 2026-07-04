@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(penala-tuna LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(MSVC)
@@ -32,3 +32,9 @@ add_test(NAME notes COMMAND test_notes)
 add_executable(test_pitch tests/test_pitch.cpp src/pitch.cpp)
 target_include_directories(test_pitch PRIVATE src)
 add_test(NAME pitch COMMAND test_pitch)
+
+# GCC ships std::print's Windows terminal support in libstdc++exp
+if(NOT MSVC)
+    target_link_libraries(test_notes PRIVATE stdc++exp)
+    target_link_libraries(test_pitch PRIVATE stdc++exp)
+endif()

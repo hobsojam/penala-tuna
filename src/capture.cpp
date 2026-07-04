@@ -31,7 +31,7 @@ void MicCapture::start() {
 
     running.store(true);
     waveInStart(wave_in);
-    thread = std::thread(&MicCapture::capture_loop, this);
+    thread = std::jthread(&MicCapture::capture_loop, this);
 }
 
 void MicCapture::stop() {
@@ -53,7 +53,8 @@ void MicCapture::stop() {
     event = nullptr;
 }
 
-int MicCapture::read_latest(short* dst, int count) {
+int MicCapture::read_latest(std::span<short> dst) {
+    int count = static_cast<int>(dst.size());
     std::scoped_lock lk(ring_mtx);
     if (write_pos < count) return 0;
     int start = write_pos - count;
