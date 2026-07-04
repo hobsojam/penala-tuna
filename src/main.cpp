@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define UNICODE
 #include <windows.h>
+#include <array>
 #include <cmath>
 #include <algorithm>
 #include <string>
@@ -13,13 +14,15 @@
 // ── chromatic → diatonic position ────────────────────────────────────────────
 // Matches the note names in notes.cpp (flats for Eb Ab Bb, sharps for C# F#).
 // PC: C  C# D  Eb E  F  F# G  Ab A  Bb B
-static const int  CHROM_DIAT[12] = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
-static const bool IS_FLAT[12]    = { 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0 };
-static const bool IS_SHARP[12]   = { 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0 };
+static constexpr std::array<int, 12>  CHROM_DIAT = { 0, 0, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6 };
+static constexpr std::array<bool, 12> IS_FLAT    = { false, false, false, true,  false, false,
+                                                     false, false, true,  false, true,  false };
+static constexpr std::array<bool, 12> IS_SHARP   = { false, true,  false, false, false, false,
+                                                     true,  false, false, false, false, false };
 // Piano strip key layout: white-key index within octave (-1 = black key)
-static const int PC_TO_WHITE[12]   = {  0,-1, 1,-1, 2, 3,-1, 4,-1, 5,-1, 6 };
+static constexpr std::array<int, 12> PC_TO_WHITE   = {  0,-1, 1,-1, 2, 3,-1, 4,-1, 5,-1, 6 };
 // For black keys: white-key index immediately to their left, within octave
-static const int PC_BLACK_LEFT[12] = { -1, 0,-1, 1,-1,-1, 3,-1, 4,-1, 5,-1 };
+static constexpr std::array<int, 12> PC_BLACK_LEFT = { -1, 0,-1, 1,-1,-1, 3,-1, 4,-1, 5,-1 };
 
 // ── layout constants ──────────────────────────────────────────────────────────
 static const int CX         = 820;
@@ -64,7 +67,7 @@ static const int HELP_Y     = 722;
 // ── pitch history ─────────────────────────────────────────────────────────────
 static constexpr int   HISTORY_MAX     = 780;  // matches strip width in pixels
 static constexpr float SILENCE_SENTINEL = 1e10f;
-static float g_history[HISTORY_MAX];
+static std::array<float, HISTORY_MAX> g_history;
 static int   g_history_pos   = 0;   // circular write head
 static int   g_history_count = 0;   // valid entries, capped at HISTORY_MAX
 
@@ -90,7 +93,7 @@ static int              g_silent   = 0;
 static HarmonicSpectrum g_spectrum = {};
 static bool             g_has_spec = false;
 static Formants         g_formants = {0.f, 0.f, false};
-static short            g_samples[2048];
+static std::array<short, 2048> g_samples;
 
 struct VibratoInfo { bool detected; float rate_hz; float depth_cents; };
 
@@ -120,22 +123,25 @@ static int g_root_midi   = 60;
 static int g_interval_st = 7;   // semitones above root
 
 // ── scale mode ────────────────────────────────────────────────────────────────
-static const int SCALE_SEMI[][8] = {
+static constexpr std::array<std::array<int, 8>, 3> SCALE_SEMI = {{
     { 0, 2, 4, 5, 7,  9, 11, 12 },   // major
     { 0, 2, 3, 5, 7,  8, 10, 12 },   // natural minor
     { 0, 2, 4, 7, 9, 12,  0,  0 },   // pentatonic major (6 notes)
-};
-static const int         SCALE_LEN[]  = { 8, 8, 6 };
-static const wchar_t*    SCALE_NAME[] = { L"Major", L"Minor", L"Pentatonic" };
+}};
+static constexpr std::array<int, 3>            SCALE_LEN  = { 8, 8, 6 };
+static constexpr std::array<const wchar_t*, 3> SCALE_NAME = { L"Major", L"Minor", L"Pentatonic" };
 
 static int g_scale_type  = 0;
 static int g_scale_root  = 60;
-static int g_scale_notes[8];
+static std::array<int, 8> g_scale_notes;
 static int g_scale_count = 0;
 static int g_scale_idx   = 0;
 
 // ── fonts ─────────────────────────────────────────────────────────────────────
-static HFONT g_fTitle, g_fLabel, g_fBody, g_fClef;
+static HFONT g_fTitle;
+static HFONT g_fLabel;
+static HFONT g_fBody;
+static HFONT g_fClef;
 
 static void create_fonts() {
     g_fTitle = CreateFontW(28, 0, 0, 0, FW_BOLD,   0, 0, 0, DEFAULT_CHARSET,
@@ -184,7 +190,7 @@ static int staff_pos(int midi, bool treble) {
 
 // Inverse of staff_pos: pixel y → nearest natural-note MIDI (no accidentals).
 static int y_to_midi(int y, bool treble) {
-    static const int DIAT_CHROM[7] = { 0, 2, 4, 5, 7, 9, 11 };
+    static constexpr std::array<int, 7> DIAT_CHROM = { 0, 2, 4, 5, 7, 9, 11 };
     int pos      = (int)std::round((float)(STAFF_BOT - y) / STEP);
     int abs_diat = pos + (treble ? 30 : 18);
     int diat_oct = abs_diat / 7;
@@ -198,6 +204,13 @@ static bool in_staff_select(POINT pt) {
     int divider = (TARGET_X + DETECTED_X) / 2;
     return pt.x >= STAFF_LEFT && pt.x <= divider &&
            pt.y >= STAFF_TOP - 6 * STEP && pt.y <= STAFF_BOT + 6 * STEP;
+}
+
+// Green within ±15 ct (in tune), amber within ±mid_ct, red beyond.
+static COLORREF accuracy_color(float cents, float mid_ct = 50.0f) {
+    if (std::abs(cents) <= 15.0f)  return RGB(50, 180, 80);
+    if (std::abs(cents) <= mid_ct) return RGB(210, 160, 0);
+    return RGB(210, 60, 60);
 }
 
 // Forward declarations for helpers used inside draw_ui
@@ -292,12 +305,15 @@ static void draw_cents_bar(HDC hdc, float cents) {
     // cents is octave-corrected pitch-class error (±600 range).
     // Log scale: log2(1+|c|)/log2(601) so fine deviations near zero are amplified.
     const float MAX = 600.0f;
-    auto log_t = [MAX](float c) -> float {
+    auto log_t = [MAX](float c) {
         float s = (c >= 0.0f) ? 1.0f : -1.0f;
         return s * std::log2(1.0f + std::abs(c)) / std::log2(1.0f + MAX);
     };
 
-    int x = 20, y = CENTS_Y, w = CX - 40, h = CENTS_H;
+    int x = 20;
+    int y = CENTS_Y;
+    int w = CX - 40;
+    int h = CENTS_H;
     int mid = x + w / 2;
 
     // Border
@@ -312,9 +328,7 @@ static void draw_cents_bar(HDC hdc, float cents) {
     // Filled bar
     float t   = std::clamp(log_t(cents), -1.0f, 1.0f);
     int   end = mid + (int)(t * (w / 2));
-    COLORREF col = std::abs(cents) <= 15.0f ? RGB(50, 180, 80)
-                 : std::abs(cents) <= 50.0f ? RGB(210, 160, 0)
-                 :                            RGB(210, 60, 60);
+    COLORREF col = accuracy_color(cents);
     {
         HBRUSH br = CreateSolidBrush(col);
         HPEN   np = CreatePen(PS_NULL, 0, 0);
@@ -366,10 +380,10 @@ static void draw_cents_bar(HDC hdc, float cents) {
 // Sampling rate = 20 Hz (50ms timer); detectable vibrato range ≈ 2–10 Hz.
 static VibratoInfo detect_vibrato() {
     constexpr int MAX_ANALYSIS = 100;  // 5 s at 20 Hz — enough for multiple cycles
-    float buf[MAX_ANALYSIS];
+    std::array<float, MAX_ANALYSIS> buf;
     int n = 0;
-    for (int i = 0; i < g_history_count && n < MAX_ANALYSIS; i++) {
-        int   idx = ((g_history_pos - 1 - i) % HISTORY_MAX + HISTORY_MAX) % HISTORY_MAX;
+    while (n < g_history_count && n < MAX_ANALYSIS) {
+        int   idx = ((g_history_pos - 1 - n) % HISTORY_MAX + HISTORY_MAX) % HISTORY_MAX;
         float v   = g_history[idx];
         if (v > 9e8f) break;  // silence: only use the most recent unbroken run
         buf[n++] = v;
@@ -396,7 +410,8 @@ static VibratoInfo detect_vibrato() {
     }
     if (best_acf < 0.4f * power) return {false, 0.0f, 0.0f};  // weak periodicity
 
-    float mn = 1e9f, mx = -1e9f;
+    float mn = 1e9f;
+    float mx = -1e9f;
     for (int i = 0; i < n; i++) { mn = std::min(mn, buf[i]); mx = std::max(mx, buf[i]); }
     float depth = mx - mn;
     if (depth < 20.0f) return {false, 0.0f, 0.0f};  // < ±10 cents: too subtle
@@ -452,9 +467,7 @@ static void draw_trace(HDC hdc) {
         int y = MID - (int)(t * TH / 2);
         y = std::max(TY + 2, std::min(TY + TH - 3, y));
 
-        COLORREF col = std::abs(cents) <= 15.0f ? RGB(50, 180, 80)
-                     : std::abs(cents) <= 100.0f ? RGB(210, 160, 0)
-                     :                             RGB(210, 60, 60);
+        COLORREF col = accuracy_color(cents, 100.0f);
         SetPixel(hdc, x, y,     col);
         SetPixel(hdc, x, y + 1, col);
     }
@@ -485,22 +498,22 @@ static void draw_trace(HDC hdc) {
 
     VibratoInfo vibrato = detect_vibrato();
     if (vibrato.detected) {
-        static wchar_t vbuf[48];
-        int len = swprintf_s(vbuf, L"~ vibrato  %.1f Hz  ±%.0f ct",
+        std::array<wchar_t, 48> vbuf;
+        int len = swprintf_s(vbuf.data(), vbuf.size(), L"~ vibrato  %.1f Hz  ±%.0f ct",
                              vibrato.rate_hz, vibrato.depth_cents / 2.0f);
         if (len > 0) {
             SetTextColor(hdc, RGB(130, 100, 180));
-            TextOutW(hdc, TX + 5, TY + TH - 20, vbuf, len);
+            TextOutW(hdc, TX + 5, TY + TH - 20, vbuf.data(), len);
         }
     }
 
     {
-        static wchar_t gbuf[32];
+        std::array<wchar_t, 32> gbuf;
         float db = 20.0f * std::log10f(g_detector.silence());
-        int len = swprintf_s(gbuf, L"Gate: %+.0f dB", db);
+        int len = swprintf_s(gbuf.data(), gbuf.size(), L"Gate: %+.0f dB", db);
         if (len > 0) {
             SetTextColor(hdc, RGB(160, 165, 180));
-            TextOutW(hdc, TX + TW - 110, TY + TH - 20, gbuf, len);
+            TextOutW(hdc, TX + TW - 110, TY + TH - 20, gbuf.data(), len);
         }
     }
 
@@ -531,8 +544,13 @@ static void draw_vowel_chart(HDC hdc) {
     auto vx = [&](float f2) { return VX + (int)(VW * (F2_MAX - f2) / (F2_MAX - F2_MIN)); };
     auto vy = [&](float f1) { return VY + (int)(VH * (f1 - F1_MIN) / (F1_MAX - F1_MIN)); };
 
-    struct Vowel { float f1, f2; const wchar_t* label; int llen; };
-    static const Vowel vowels[] = {
+    struct Vowel {
+        float f1;
+        float f2;
+        const wchar_t* label;
+        int llen;
+    };
+    static constexpr std::array<Vowel, 7> vowels = {{
         {270.f, 2600.f, L"i",      1},
         {430.f, 2200.f, L"e",      1},
         {600.f, 1800.f, L"ɛ", 1},  // ɛ
@@ -540,7 +558,7 @@ static void draw_vowel_chart(HDC hdc) {
         {800.f, 1100.f, L"ɑ", 1},  // ɑ
         {450.f, 950.f,  L"o",      1},
         {280.f, 850.f,  L"u",      1},
-    };
+    }};
 
     HFONT of = (HFONT)SelectObject(hdc, g_fBody);
     SetBkMode(hdc, TRANSPARENT);
@@ -612,6 +630,13 @@ static int piano_hit_test(POINT pt) {
     return -1;
 }
 
+static bool in_current_scale(int midi) {
+    if (g_mode != Mode::SCALE) return false;
+    for (int i = 0; i < g_scale_count; i++)
+        if (g_scale_notes[i] == midi) return true;
+    return false;
+}
+
 static void draw_piano_strip(HDC hdc) {
     // White keys
     for (int midi = PIANO_LO; midi <= PIANO_HI; midi++) {
@@ -620,14 +645,10 @@ static void draw_piano_strip(HDC hdc) {
         int kx = PIANO_X + wi * PIANO_WKW;
 
         bool is_target = (midi == g_target);
-        bool in_scale  = false;
-        if (g_mode == Mode::SCALE)
-            for (int i = 0; i < g_scale_count; i++)
-                if (g_scale_notes[i] == midi) { in_scale = true; break; }
 
-        COLORREF fill = is_target ? RGB(80, 160, 220)
-                      : in_scale  ? RGB(195, 218, 245)
-                      :             RGB(252, 252, 254);
+        COLORREF fill = RGB(252, 252, 254);
+        if (in_current_scale(midi)) fill = RGB(195, 218, 245);
+        if (is_target)              fill = RGB(80, 160, 220);
         HBRUSH br = CreateSolidBrush(fill);
         HPEN   pn = CreatePen(PS_SOLID, 1, RGB(160, 162, 172));
         HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
@@ -640,10 +661,10 @@ static void draw_piano_strip(HDC hdc) {
             HFONT of = (HFONT)SelectObject(hdc, g_fBody);
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, is_target ? RGB(255,255,255) : RGB(160, 160, 170));
-            wchar_t lbl[4];
-            swprintf_s(lbl, L"C%d", midi / 12 - 1);
+            std::array<wchar_t, 4> lbl;
+            swprintf_s(lbl.data(), lbl.size(), L"C%d", midi / 12 - 1);
             RECT lr = { kx, PIANO_Y + PIANO_H - 18, kx + PIANO_WKW, PIANO_Y + PIANO_H };
-            DrawTextW(hdc, lbl, -1, &lr, DT_CENTER | DT_SINGLELINE);
+            DrawTextW(hdc, lbl.data(), -1, &lr, DT_CENTER | DT_SINGLELINE);
             SelectObject(hdc, of);
         }
     }
@@ -653,15 +674,9 @@ static void draw_piano_strip(HDC hdc) {
         int bx = piano_black_lx(midi);
         if (bx < 0) continue;
 
-        bool is_target = (midi == g_target);
-        bool in_scale  = false;
-        if (g_mode == Mode::SCALE)
-            for (int i = 0; i < g_scale_count; i++)
-                if (g_scale_notes[i] == midi) { in_scale = true; break; }
-
-        COLORREF fill = is_target ? RGB(50, 120, 200)
-                      : in_scale  ? RGB(55, 85, 145)
-                      :             RGB(28, 28, 32);
+        COLORREF fill = RGB(28, 28, 32);
+        if (in_current_scale(midi)) fill = RGB(55, 85, 145);
+        if (midi == g_target)       fill = RGB(50, 120, 200);
         HBRUSH br = CreateSolidBrush(fill);
         HPEN   np = CreatePen(PS_NULL, 0, 0);
         HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
@@ -707,14 +722,13 @@ static void draw_harmonic_bars(HDC hdc) {
             DeleteObject(fb); DeleteObject(np);
         }
 
-        wchar_t lbl[4];
-        if (h == 0) lbl[0] = L'F', lbl[1] = 0;
-        else        swprintf_s(lbl, L"%dF", h + 1);
+        std::array<wchar_t, 4> lbl = { L'F', 0 };
+        if (h > 0) swprintf_s(lbl.data(), lbl.size(), L"%dF", h + 1);
         HFONT of2 = (HFONT)SelectObject(hdc, g_fBody);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(110, 110, 120));
         RECT lr = { x, HARM_TOP + HARM_H + 4, x + BAR_W, HARM_TOP + HARM_H + 20 };
-        DrawTextW(hdc, lbl, -1, &lr, DT_CENTER | DT_SINGLELINE);
+        DrawTextW(hdc, lbl.data(), -1, &lr, DT_CENTER | DT_SINGLELINE);
         SelectObject(hdc, of2);
     }
 }
@@ -726,8 +740,8 @@ static void draw_play_hint(HDC hdc, int x, int y) {
     HPEN   np = CreatePen(PS_NULL, 0, 0);
     HBRUSH ob = (HBRUSH)SelectObject(hdc, br);
     HPEN   op = (HPEN)SelectObject(hdc, np);
-    POINT  pts[] = { {x, y - 6}, {x, y + 6}, {x + 10, y} };
-    Polygon(hdc, pts, 3);
+    std::array<POINT, 3> pts = {{ {x, y - 6}, {x, y + 6}, {x + 10, y} }};
+    Polygon(hdc, pts.data(), (int)pts.size());
     SelectObject(hdc, ob); SelectObject(hdc, op);
     DeleteObject(br); DeleteObject(np);
 }
@@ -788,6 +802,77 @@ static void draw_scale_context(HDC hdc, bool treble) {
     }
 }
 
+// ── info rows ─────────────────────────────────────────────────────────────────
+// Mode-specific context row at INFO_Y3. `active` appends the hold hint in scale mode.
+static void draw_mode_info(HDC hdc, COLORREF col, bool active) {
+    if (g_mode == Mode::INTERVAL) {
+        std::array<wchar_t, 100> buf;
+        int len = swprintf_s(buf.data(), buf.size(), L"Interval:  %s    root: %s",
+                             interval_name(g_interval_st),
+                             widen(note_name(g_root_midi)).c_str());
+        SetTextColor(hdc, col);
+        TextOutW(hdc, 20, INFO_Y3, buf.data(), len);
+    } else if (g_mode == Mode::SCALE) {
+        std::array<wchar_t, 100> buf;
+        int len = swprintf_s(buf.data(), buf.size(),
+                             active ? L"Scale:  %s  root: %s    note %d / %d    hold to advance"
+                                    : L"Scale:  %s  root: %s    note %d / %d",
+                             SCALE_NAME[g_scale_type],
+                             widen(note_name(g_scale_root)).c_str(),
+                             g_scale_idx + 1, g_scale_count);
+        SetTextColor(hdc, col);
+        TextOutW(hdc, 20, INFO_Y3, buf.data(), len);
+    }
+}
+
+// Detected note (filled, coloured) on the staff + octave-error shadow.
+static void draw_detected_note(HDC hdc, bool treble) {
+    int   dm        = freq_to_midi(g_smoothed);
+    float cents     = cents_error(g_smoothed, midi_to_freq(g_target));
+    int   midi_diff = dm - g_target;
+
+    // If ≥1 octave off, draw a hollow shadow in the nearest correct octave
+    if (std::abs(midi_diff) >= 12) {
+        int octaves     = (int)std::round((float)midi_diff / 12.0f);
+        int shadow_midi = dm - octaves * 12;
+        draw_note(hdc, DETECTED_X, shadow_midi, treble, RGB(155, 155, 205), true);
+    }
+
+    draw_note(hdc, DETECTED_X, dm, treble, accuracy_color(cents), false);
+}
+
+// Detected-pitch text row, LOCKED badge, hold ring, cents bar, harmonics, piano.
+static void draw_detected_readout(HDC hdc) {
+    int   dm     = freq_to_midi(g_smoothed);
+    float cents  = cents_error(g_smoothed, midi_to_freq(g_target));
+    bool  locked = std::abs(cents) <= 15.0f;
+
+    std::array<wchar_t, 80> buf;
+    int len = swprintf_s(buf.data(), buf.size(), L"Detected:  %s   %.0f Hz   %+.0f ct",
+                         widen(note_name(dm)).c_str(), g_smoothed, cents);
+    SetTextColor(hdc, accuracy_color(cents));
+    TextOutW(hdc, 20, INFO_Y2, buf.data(), len);
+
+    if (locked) {
+        SelectObject(hdc, g_fTitle);
+        SetTextColor(hdc, RGB(50, 180, 80));
+        TextOutW(hdc, CX - 120, INFO_Y2 - 2, L"LOCKED", 6);
+    }
+
+    // Hold timer ring (always shown when pitch detected)
+    draw_hold_timer(hdc, CX - 48, INFO_Y2 + 10);
+
+    SelectObject(hdc, g_fLabel);
+    SetBkMode(hdc, TRANSPARENT);
+    draw_mode_info(hdc, RGB(70, 100, 170), true);
+
+    // Fold raw cents into ±600 (nearest pitch class) for the bar
+    float cents_pc = cents - std::roundf(cents / 1200.0f) * 1200.0f;
+    draw_cents_bar(hdc, cents_pc);
+    if (g_has_spec) draw_harmonic_bars(hdc);
+    draw_piano_strip(hdc);
+}
+
 // ── main draw ─────────────────────────────────────────────────────────────────
 static void draw_ui(HDC hdc) {
     RECT rc = { 0, 0, CX, CY };
@@ -805,7 +890,7 @@ static void draw_ui(HDC hdc) {
 
     // Mode badge (top-right)
     {
-        static const wchar_t* BADGE[] = { L"FREE", L"INTERVAL", L"SCALE" };
+        static constexpr std::array<const wchar_t*, 3> BADGE = { L"FREE", L"INTERVAL", L"SCALE" };
         SelectObject(hdc, g_fLabel);
         COLORREF mc = (g_mode == Mode::FREE) ? RGB(170, 170, 180) : RGB(50, 120, 200);
         SetTextColor(hdc, mc);
@@ -867,24 +952,7 @@ static void draw_ui(HDC hdc) {
                        TARGET_X + HEAD_W + 18, note_y + pad };
     }
 
-    // Detected note (filled, coloured) + octave-error shadow
-    if (g_smoothed > 0.0f) {
-        int   dm       = freq_to_midi(g_smoothed);
-        float cents    = cents_error(g_smoothed, midi_to_freq(g_target));
-        int   midi_diff = dm - g_target;
-
-        // If ≥1 octave off, draw a hollow shadow in the nearest correct octave
-        if (std::abs(midi_diff) >= 12) {
-            int octaves    = (int)std::round((float)midi_diff / 12.0f);
-            int shadow_midi = dm - octaves * 12;
-            draw_note(hdc, DETECTED_X, shadow_midi, treble, RGB(155, 155, 205), true);
-        }
-
-        COLORREF col = std::abs(cents) <= 15.0f ? RGB(50, 180, 80)
-                     : std::abs(cents) <= 50.0f ? RGB(210, 160, 0)
-                     :                            RGB(210, 60, 60);
-        draw_note(hdc, DETECTED_X, dm, treble, col, false);
-    }
+    if (g_smoothed > 0.0f) draw_detected_note(hdc, treble);
 
     // Faint divider between note columns
     {
@@ -900,85 +968,22 @@ static void draw_ui(HDC hdc) {
     SelectObject(hdc, g_fLabel);
 
     {
-        wchar_t buf[64];
-        swprintf_s(buf, L"Target:    %s   %.0f Hz",
-                   widen(note_name(g_target)).c_str(), midi_to_freq(g_target));
+        std::array<wchar_t, 64> buf;
+        int len = swprintf_s(buf.data(), buf.size(), L"Target:    %s   %.0f Hz",
+                             widen(note_name(g_target)).c_str(), midi_to_freq(g_target));
         SetTextColor(hdc, RGB(50, 50, 56));
-        TextOutW(hdc, 20, INFO_Y1, buf, (int)wcslen(buf));
+        TextOutW(hdc, 20, INFO_Y1, buf.data(), len);
     }
 
     if (g_smoothed > 0.0f) {
-        int   dm    = freq_to_midi(g_smoothed);
-        float cents = cents_error(g_smoothed, midi_to_freq(g_target));
-        bool  locked = std::abs(cents) <= 15.0f;
-        COLORREF col = locked                    ? RGB(50, 180, 80)
-                     : std::abs(cents) <= 50.0f ? RGB(210, 160, 0)
-                     :                            RGB(210, 60, 60);
-
-        wchar_t buf[80];
-        swprintf_s(buf, L"Detected:  %s   %.0f Hz   %+.0f ct",
-                   widen(note_name(dm)).c_str(), g_smoothed, cents);
-        SetTextColor(hdc, col);
-        TextOutW(hdc, 20, INFO_Y2, buf, (int)wcslen(buf));
-
-        if (locked) {
-            SelectObject(hdc, g_fTitle);
-            SetTextColor(hdc, RGB(50, 180, 80));
-            TextOutW(hdc, CX - 120, INFO_Y2 - 2, L"LOCKED", 6);
-        }
-
-        // Hold timer ring (always shown when pitch detected)
-        draw_hold_timer(hdc, CX - 48, INFO_Y2 + 10);
-
-        // ── INFO_Y3: mode-specific context row ────────────────────────────────
-        SelectObject(hdc, g_fLabel);
-        SetBkMode(hdc, TRANSPARENT);
-        if (g_mode == Mode::INTERVAL) {
-            wchar_t buf2[100];
-            swprintf_s(buf2, L"Interval:  %s    root: %s",
-                       interval_name(g_interval_st),
-                       widen(note_name(g_root_midi)).c_str());
-            SetTextColor(hdc, RGB(70, 100, 170));
-            TextOutW(hdc, 20, INFO_Y3, buf2, (int)wcslen(buf2));
-        } else if (g_mode == Mode::SCALE) {
-            wchar_t buf2[100];
-            swprintf_s(buf2, L"Scale:  %s  root: %s    note %d / %d    hold to advance",
-                       SCALE_NAME[g_scale_type],
-                       widen(note_name(g_scale_root)).c_str(),
-                       g_scale_idx + 1, g_scale_count);
-            SetTextColor(hdc, RGB(70, 100, 170));
-            TextOutW(hdc, 20, INFO_Y3, buf2, (int)wcslen(buf2));
-        }
-
-        // Fold raw cents into ±600 (nearest pitch class) for the bar
-        float cents_pc = cents - std::roundf(cents / 1200.0f) * 1200.0f;
-        draw_cents_bar(hdc, cents_pc);
-        if (g_has_spec) draw_harmonic_bars(hdc);
-        draw_piano_strip(hdc);
-
+        draw_detected_readout(hdc);
     } else {
         SelectObject(hdc, g_fLabel);
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, RGB(170, 170, 180));
         TextOutW(hdc, 20, INFO_Y2, L"Listening…", 10);
-
         // Mode hint even while silent
-        if (g_mode == Mode::INTERVAL) {
-            wchar_t buf2[100];
-            swprintf_s(buf2, L"Interval:  %s    root: %s",
-                       interval_name(g_interval_st),
-                       widen(note_name(g_root_midi)).c_str());
-            SetTextColor(hdc, RGB(170, 185, 215));
-            TextOutW(hdc, 20, INFO_Y3, buf2, (int)wcslen(buf2));
-        } else if (g_mode == Mode::SCALE) {
-            wchar_t buf2[100];
-            swprintf_s(buf2, L"Scale:  %s  root: %s    note %d / %d",
-                       SCALE_NAME[g_scale_type],
-                       widen(note_name(g_scale_root)).c_str(),
-                       g_scale_idx + 1, g_scale_count);
-            SetTextColor(hdc, RGB(170, 185, 215));
-            TextOutW(hdc, 20, INFO_Y3, buf2, (int)wcslen(buf2));
-        }
+        draw_mode_info(hdc, RGB(170, 185, 215), false);
     }
 
     // ── Pitch history trace + vowel chart ────────────────────────────────────
@@ -991,7 +996,7 @@ static void draw_ui(HDC hdc) {
     // ── Help ─────────────────────────────────────────────────────────────────
     SelectObject(hdc, g_fBody);
     SetTextColor(hdc, RGB(165, 165, 175));
-    static const wchar_t* help_text[] = {
+    static constexpr std::array<const wchar_t*, 3> help_text = {
         L"Tab: mode    Click staff / L/R: set note    Up/Dn: octave    Space: replay    Enter: random    [ / ]: gate    Q: quit",
         L"Tab: mode    Space / Enter: new interval (plays root then target)    Q: quit",
         L"Tab: mode    Enter: new scale    Space: replay    hold in tune 2s to advance    Q: quit",
@@ -1015,7 +1020,7 @@ static void set_target(int midi) {
 
 // ── interval helpers ──────────────────────────────────────────────────────────
 static const wchar_t* interval_name(int semi) {
-    static const wchar_t* N[] = {
+    static constexpr std::array<const wchar_t*, 13> N = {
         L"Unison", L"Minor 2nd", L"Major 2nd", L"Minor 3rd", L"Major 3rd",
         L"Perfect 4th", L"Tritone", L"Perfect 5th",
         L"Minor 6th", L"Major 6th", L"Minor 7th", L"Major 7th", L"Octave"
@@ -1059,6 +1064,166 @@ static void start_scale_mode() {
     }
 }
 
+// ── message handlers ──────────────────────────────────────────────────────────
+static void update_pitch_state() {
+    if (g_capture.read_latest(g_samples.data(), 2048) != 2048) return;
+
+    float raw = g_detector.detect(g_samples.data(), 2048);
+    if (raw > 0.0f) {
+        g_smoothed = smooth_pitch(g_smoothed, raw);
+        g_silent   = 0;
+        g_spectrum = g_detector.harmonics(g_samples.data(), 2048, g_smoothed);
+        g_formants = g_detector.formants(g_samples.data(), 2048);
+        g_has_spec = true;
+        history_push(cents_error(g_smoothed, midi_to_freq(g_target)));
+    } else {
+        if (++g_silent > HOLD_FRAMES) {
+            g_smoothed       = 0.0f;
+            g_has_spec       = false;
+            g_formants.valid = false;
+        }
+        history_push(SILENCE_SENTINEL);
+    }
+}
+
+// Hold timer: count consecutive ticks within ±15ct (octave-corrected).
+// While silently held (g_silent in 1..HOLD_FRAMES), g_hold_frames stays frozen.
+static void update_hold_timer() {
+    if (g_smoothed <= 0.0f) {
+        if (g_silent == 0) g_hold_frames = 0; // sound present but below threshold → reset
+        return;
+    }
+
+    float raw_ct = cents_error(g_smoothed, midi_to_freq(g_target));
+    float ct_pc  = raw_ct - std::roundf(raw_ct / 1200.0f) * 1200.0f;
+    if (std::abs(ct_pc) > 15.0f) {
+        g_hold_frames = 0;
+        return;
+    }
+
+    g_hold_frames = std::min(g_hold_frames + 1, HOLD_TARGET);
+    // Scale mode: advance when held long enough
+    if (g_mode == Mode::SCALE && g_hold_frames >= HOLD_TARGET) {
+        g_scale_idx = (g_scale_idx + 1) % g_scale_count;
+        set_target(g_scale_notes[g_scale_idx]);
+    }
+}
+
+static void on_timer(HWND hwnd) {
+    update_pitch_state();
+    update_hold_timer();
+
+    // Queued play: root → target sequence for interval mode
+    --g_play_delay;
+    if (g_play_queued >= 0 && g_play_delay <= 0) {
+        g_player.play(midi_to_freq(g_play_queued), 1.2f);
+        g_play_queued = -1;
+    }
+
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static void on_paint(HWND hwnd) {
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd, &ps);
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    HDC     mdc  = CreateCompatibleDC(hdc);
+    HBITMAP mbmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
+    HBITMAP obmp = (HBITMAP)SelectObject(mdc, mbmp);
+    draw_ui(mdc);
+    BitBlt(hdc, 0, 0, rc.right, rc.bottom, mdc, 0, 0, SRCCOPY);
+    SelectObject(mdc, obmp);
+    DeleteObject(mbmp);
+    DeleteDC(mdc);
+    EndPaint(hwnd, &ps);
+}
+
+static void on_mousemove(HWND hwnd, LPARAM lp) {
+    POINT pt = { LOWORD(lp), HIWORD(lp) };
+    int prev = g_hover_midi;
+    g_hover_midi = in_staff_select(pt) ? y_to_midi(pt.y, g_target >= 60) : -1;
+    if (g_hover_midi != prev) InvalidateRect(hwnd, nullptr, FALSE);
+    // Request WM_MOUSELEAVE so we can clear the ghost when cursor exits
+    TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+    TrackMouseEvent(&tme);
+}
+
+static void on_lbuttondown(LPARAM lp) {
+    POINT pt = { LOWORD(lp), HIWORD(lp) };
+    if (g_mode == Mode::FREE) {
+        int piano_midi = piano_hit_test(pt);
+        if (piano_midi >= 0) { set_target(piano_midi); return; }
+    }
+    if (in_staff_select(pt) && g_mode == Mode::FREE)
+        set_target(y_to_midi(pt.y, g_target >= 60));
+    else if (PtInRect(&g_note_hit, pt))
+        g_player.play(midi_to_freq(g_target));
+}
+
+// Returns true when the hand cursor was set (caller returns TRUE to Windows).
+static bool on_setcursor(HWND hwnd, LPARAM lp) {
+    if (LOWORD(lp) != HTCLIENT) return false;
+    POINT pt;
+    GetCursorPos(&pt);
+    ScreenToClient(hwnd, &pt);
+    bool over_piano = (g_mode == Mode::FREE && piano_hit_test(pt) >= 0);
+    if (in_staff_select(pt) || PtInRect(&g_note_hit, pt) || over_piano) {
+        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        return true;
+    }
+    return false;
+}
+
+static void on_keydown(HWND hwnd, WPARAM wp) {
+    switch (wp) {
+    case VK_TAB:
+        g_mode = (Mode)(((int)g_mode + 1) % (int)Mode::COUNT);
+        if      (g_mode == Mode::INTERVAL) start_interval_mode();
+        else if (g_mode == Mode::SCALE)    start_scale_mode();
+        else                               set_target(random_note());
+        break;
+    case VK_SPACE:
+        if (g_mode == Mode::INTERVAL) {
+            // Replay root → target sequence
+            g_player.play(midi_to_freq(g_root_midi), 0.8f);
+            g_play_queued = g_target;
+            g_play_delay  = 16;
+        } else {
+            g_player.play(midi_to_freq(g_target));
+        }
+        break;
+    case VK_RETURN:
+        if      (g_mode == Mode::INTERVAL) start_interval_mode();
+        else if (g_mode == Mode::SCALE)    start_scale_mode();
+        else                               set_target(random_note());
+        break;
+    case VK_UP:
+        if (g_mode == Mode::FREE) set_target(std::min(g_target + 12, 84));
+        break;
+    case VK_DOWN:
+        if (g_mode == Mode::FREE) set_target(std::max(g_target - 12, 36));
+        break;
+    case VK_RIGHT:
+        if (g_mode == Mode::FREE) set_target(std::min(g_target + 1, 84));
+        break;
+    case VK_LEFT:
+        if (g_mode == Mode::FREE) set_target(std::max(g_target - 1, 36));
+        break;
+    case 'Q': case VK_ESCAPE:
+        DestroyWindow(hwnd);
+        break;
+    case VK_OEM_4: // [  — lower noise gate
+        g_detector.set_silence(std::clamp(g_detector.silence() * 0.7f, 0.00005f, 0.005f));
+        break;
+    case VK_OEM_6: // ]  — raise noise gate
+        g_detector.set_silence(std::clamp(g_detector.silence() * 1.4f, 0.00005f, 0.005f));
+        break;
+    default:
+        break;
+    }
+}
+
 // ── WndProc ───────────────────────────────────────────────────────────────────
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -1070,159 +1235,32 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         SetTimer(hwnd, 1, 50, nullptr);
         return 0;
 
-    case WM_TIMER: {
-        if (g_capture.read_latest(g_samples, 2048) == 2048) {
-            float raw = g_detector.detect(g_samples, 2048);
-            if (raw > 0.0f) {
-                g_smoothed = smooth_pitch(g_smoothed, raw);
-                g_silent   = 0;
-                g_spectrum = g_detector.harmonics(g_samples, 2048, g_smoothed);
-                g_formants = g_detector.formants(g_samples, 2048);
-                g_has_spec = true;
-                history_push(cents_error(g_smoothed, midi_to_freq(g_target)));
-            } else {
-                if (++g_silent > HOLD_FRAMES) {
-                    g_smoothed     = 0.0f;
-                    g_has_spec     = false;
-                    g_formants.valid = false;
-                }
-                history_push(SILENCE_SENTINEL);
-            }
-        }
-
-        // Hold timer: count consecutive ticks within ±15ct (octave-corrected)
-        if (g_smoothed > 0.0f) {
-            float raw_ct = cents_error(g_smoothed, midi_to_freq(g_target));
-            float ct_pc  = raw_ct - std::roundf(raw_ct / 1200.0f) * 1200.0f;
-            if (std::abs(ct_pc) <= 15.0f) {
-                g_hold_frames = std::min(g_hold_frames + 1, HOLD_TARGET);
-                // Scale mode: advance when held long enough
-                if (g_mode == Mode::SCALE && g_hold_frames >= HOLD_TARGET) {
-                    g_scale_idx = (g_scale_idx + 1) % g_scale_count;
-                    set_target(g_scale_notes[g_scale_idx]);
-                }
-            } else {
-                g_hold_frames = 0;
-            }
-        } else if (g_silent == 0) {
-            g_hold_frames = 0; // sound present but below threshold → reset
-        }
-        // While silently held (g_silent in 1..HOLD_FRAMES), keep g_hold_frames frozen.
-
-        // Queued play: root → target sequence for interval mode
-        --g_play_delay;
-        if (g_play_queued >= 0 && g_play_delay <= 0) {
-            g_player.play(midi_to_freq(g_play_queued), 1.2f);
-            g_play_queued = -1;
-        }
-
-        InvalidateRect(hwnd, nullptr, FALSE);
+    case WM_TIMER:
+        on_timer(hwnd);
         return 0;
-    }
 
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rc; GetClientRect(hwnd, &rc);
-        HDC     mdc  = CreateCompatibleDC(hdc);
-        HBITMAP mbmp = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
-        HBITMAP obmp = (HBITMAP)SelectObject(mdc, mbmp);
-        draw_ui(mdc);
-        BitBlt(hdc, 0, 0, rc.right, rc.bottom, mdc, 0, 0, SRCCOPY);
-        SelectObject(mdc, obmp);
-        DeleteObject(mbmp);
-        DeleteDC(mdc);
-        EndPaint(hwnd, &ps);
+    case WM_PAINT:
+        on_paint(hwnd);
         return 0;
-    }
 
-    case WM_MOUSEMOVE: {
-        POINT pt = { LOWORD(lp), HIWORD(lp) };
-        int prev = g_hover_midi;
-        g_hover_midi = in_staff_select(pt) ? y_to_midi(pt.y, g_target >= 60) : -1;
-        if (g_hover_midi != prev) InvalidateRect(hwnd, nullptr, FALSE);
-        // Request WM_MOUSELEAVE so we can clear the ghost when cursor exits
-        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
-        TrackMouseEvent(&tme);
+    case WM_MOUSEMOVE:
+        on_mousemove(hwnd, lp);
         return 0;
-    }
 
     case WM_MOUSELEAVE:
         if (g_hover_midi >= 0) { g_hover_midi = -1; InvalidateRect(hwnd, nullptr, FALSE); }
         return 0;
 
-    case WM_LBUTTONDOWN: {
-        POINT pt = { LOWORD(lp), HIWORD(lp) };
-        if (g_mode == Mode::FREE) {
-            int piano_midi = piano_hit_test(pt);
-            if (piano_midi >= 0) { set_target(piano_midi); return 0; }
-        }
-        if (in_staff_select(pt) && g_mode == Mode::FREE)
-            set_target(y_to_midi(pt.y, g_target >= 60));
-        else if (PtInRect(&g_note_hit, pt))
-            g_player.play(midi_to_freq(g_target));
+    case WM_LBUTTONDOWN:
+        on_lbuttondown(lp);
         return 0;
-    }
 
-    case WM_SETCURSOR: {
-        if (LOWORD(lp) == HTCLIENT) {
-            POINT pt;
-            GetCursorPos(&pt);
-            ScreenToClient(hwnd, &pt);
-            bool over_piano = (g_mode == Mode::FREE && piano_hit_test(pt) >= 0);
-            if (in_staff_select(pt) || PtInRect(&g_note_hit, pt) || over_piano) {
-                SetCursor(LoadCursorW(nullptr, IDC_HAND));
-                return TRUE;
-            }
-        }
+    case WM_SETCURSOR:
+        if (on_setcursor(hwnd, lp)) return TRUE;
         break;
-    }
 
     case WM_KEYDOWN:
-        switch (wp) {
-        case VK_TAB:
-            g_mode = (Mode)(((int)g_mode + 1) % (int)Mode::COUNT);
-            if      (g_mode == Mode::INTERVAL) start_interval_mode();
-            else if (g_mode == Mode::SCALE)    start_scale_mode();
-            else                               set_target(random_note());
-            break;
-        case VK_SPACE:
-            if (g_mode == Mode::INTERVAL) {
-                // Replay root → target sequence
-                g_player.play(midi_to_freq(g_root_midi), 0.8f);
-                g_play_queued = g_target;
-                g_play_delay  = 16;
-            } else {
-                g_player.play(midi_to_freq(g_target));
-            }
-            break;
-        case VK_RETURN:
-            if      (g_mode == Mode::INTERVAL) start_interval_mode();
-            else if (g_mode == Mode::SCALE)    start_scale_mode();
-            else                               set_target(random_note());
-            break;
-        case VK_UP:
-            if (g_mode == Mode::FREE) set_target(std::min(g_target + 12, 84));
-            break;
-        case VK_DOWN:
-            if (g_mode == Mode::FREE) set_target(std::max(g_target - 12, 36));
-            break;
-        case VK_RIGHT:
-            if (g_mode == Mode::FREE) set_target(std::min(g_target + 1, 84));
-            break;
-        case VK_LEFT:
-            if (g_mode == Mode::FREE) set_target(std::max(g_target - 1, 36));
-            break;
-        case 'Q': case VK_ESCAPE:
-            DestroyWindow(hwnd);
-            break;
-        case VK_OEM_4: // [  — lower noise gate
-            g_detector.set_silence(std::clamp(g_detector.silence() * 0.7f, 0.00005f, 0.005f));
-            break;
-        case VK_OEM_6: // ]  — raise noise gate
-            g_detector.set_silence(std::clamp(g_detector.silence() * 1.4f, 0.00005f, 0.005f));
-            break;
-        }
+        on_keydown(hwnd, wp);
         return 0;
 
     case WM_DESTROY:
@@ -1231,6 +1269,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         delete_fonts();
         PostQuitMessage(0);
         return 0;
+
+    default:
+        break;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }

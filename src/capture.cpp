@@ -54,7 +54,7 @@ void MicCapture::stop() {
 }
 
 int MicCapture::read_latest(short* dst, int count) {
-    std::lock_guard<std::mutex> lk(ring_mtx);
+    std::scoped_lock lk(ring_mtx);
     if (write_pos < count) return 0;
     int start = write_pos - count;
     for (int i = 0; i < count; i++)
@@ -69,11 +69,11 @@ void MicCapture::capture_loop() {
         for (int i = 0; i < NUM_BUFS; i++) {
             if (!(hdrs[i].dwFlags & WHDR_DONE)) continue;
 
-            int    n   = static_cast<int>(hdrs[i].dwBytesRecorded / sizeof(short));
-            auto*  src = reinterpret_cast<short*>(hdrs[i].lpData);
+            int         n   = static_cast<int>(hdrs[i].dwBytesRecorded / sizeof(short));
+            const auto* src = reinterpret_cast<const short*>(hdrs[i].lpData);
 
             {
-                std::lock_guard<std::mutex> lk(ring_mtx);
+                std::scoped_lock lk(ring_mtx);
                 for (int j = 0; j < n; j++)
                     ring[write_pos++ % RING_SAMPLES] = src[j];
             }

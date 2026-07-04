@@ -1,7 +1,8 @@
 #pragma once
+#include <array>
 
 struct HarmonicSpectrum {
-    float power[5]; // normalized power at F, 2F, 3F, 4F, 5F (max=1.0)
+    std::array<float, 5> power; // normalized power at F, 2F, 3F, 4F, 5F (max=1.0)
 };
 
 struct Formants {
@@ -13,11 +14,11 @@ struct Formants {
 class PitchDetector {
 public:
     // Returns fundamental frequency in Hz, or 0.0f if silent / no pitch.
-    float detect(const short* samples, int count);
+    float detect(const short* samples, int count) const;
 
     // Returns spectral power at the first 5 harmonics of `fundamental`.
     // Call only when detect() returned a valid frequency.
-    HarmonicSpectrum harmonics(const short* samples, int count, float fundamental);
+    HarmonicSpectrum harmonics(const short* samples, int count, float fundamental) const;
 
     // Returns LPC-derived F1/F2 formant estimates, or {0,0,false} if unreliable.
     Formants formants(const short* samples, int count) const;

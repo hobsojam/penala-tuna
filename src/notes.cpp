@@ -1,10 +1,11 @@
 #include "notes.h"
+#include <array>
 #include <cmath>
 #include <random>
 #include <string>
 
 // Chromatic scale using flats for accidentals (more idiomatic for voice)
-static const char* NAMES[12] = {
+static constexpr std::array<const char*, 12> NAMES = {
     "C", "C♯", "D", "E♭", "E",
     "F", "F♯", "G", "A♭", "A", "B♭", "B"
 };
@@ -29,6 +30,6 @@ float cents_error(float detected, float target) {
 
 int random_note(int lo, int hi) {
     static std::mt19937 rng{std::random_device{}()};
-    std::uniform_int_distribution<int> dist(lo, hi);
+    std::uniform_int_distribution dist(lo, hi);
     return dist(rng);
 }
