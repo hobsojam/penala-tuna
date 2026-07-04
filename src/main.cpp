@@ -7,6 +7,7 @@
 #include <numbers>
 #include <numeric>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "notes.h"
@@ -830,12 +831,11 @@ static void draw_mode_info(HDC hdc, COLORREF col, bool active) {
 
 // Detected note (filled, coloured) on the staff + octave-error shadow.
 static void draw_detected_note(HDC hdc, bool treble) {
-    int   dm        = freq_to_midi(g_smoothed);
-    float cents     = cents_error(g_smoothed, midi_to_freq(g_target));
-    int   midi_diff = dm - g_target;
+    int   dm    = freq_to_midi(g_smoothed);
+    float cents = cents_error(g_smoothed, midi_to_freq(g_target));
 
     // If ≥1 octave off, draw a hollow shadow in the nearest correct octave
-    if (std::abs(midi_diff) >= 12) {
+    if (int midi_diff = dm - g_target; std::abs(midi_diff) >= 12) {
         int octaves     = (int)std::round((float)midi_diff / 12.0f);
         int shadow_midi = dm - octaves * 12;
         draw_note(hdc, DETECTED_X, shadow_midi, treble, RGB(155, 155, 205), true);
@@ -1004,8 +1004,8 @@ static void draw_ui(HDC hdc) {
         L"Tab: mode    Space / Enter: new interval (plays root then target)    Q: quit",
         L"Tab: mode    Enter: new scale    Space: replay    hold in tune 2s to advance    Q: quit",
     };
-    const wchar_t* help = help_text[std::to_underlying(g_mode)];
-    TextOutW(hdc, 20, HELP_Y, help, (int)wcslen(help));
+    std::wstring_view help = help_text[std::to_underlying(g_mode)];
+    TextOutW(hdc, 20, HELP_Y, help.data(), (int)help.size());
 
     SelectObject(hdc, of);
 }
