@@ -292,15 +292,15 @@ static void draw_clef(HDC hdc, bool treble) {
     if (treble) {
         // G line = 2nd from bottom = STAFF_TOP + 3*LINE_GAP.
         // At 95 pt the G-curl sits ~82 px below the top of the character cell.
-        wchar_t clef[] = { 0xD834, 0xDD1E, 0 }; // U+1D11E G clef
+        std::array<wchar_t, 3> clef = { 0xD834, 0xDD1E, 0 }; // U+1D11E G clef
         int g_line = STAFF_TOP + 3 * LINE_GAP;
-        TextOutW(hdc, STAFF_LEFT, g_line - 130, clef, 2);
+        TextOutW(hdc, STAFF_LEFT, g_line - 130, clef.data(), 2);
     } else {
         // F line = 4th from bottom = 2nd from top = STAFF_TOP + LINE_GAP.
         // The character top sits a few pixels above the F-line.
-        wchar_t clef[] = { 0xD834, 0xDD22, 0 }; // U+1D122 F clef
+        std::array<wchar_t, 3> clef = { 0xD834, 0xDD22, 0 }; // U+1D122 F clef
         int f_line = STAFF_TOP + LINE_GAP;
-        TextOutW(hdc, STAFF_LEFT, f_line - 88, clef, 2);
+        TextOutW(hdc, STAFF_LEFT, f_line - 88, clef.data(), 2);
     }
     SelectObject(hdc, of);
 }
@@ -543,8 +543,10 @@ static void draw_vowel_chart(HDC hdc) {
     SelectObject(hdc, obp); DeleteObject(bp);
 
     // Axes: F1 200–1000 Hz vertical (low=top), F2 3000–700 Hz horizontal (high=left)
-    const float F1_MIN = 200.f, F1_MAX = 1000.f;
-    const float F2_MIN = 700.f, F2_MAX = 3000.f;
+    const float F1_MIN = 200.f;
+    const float F1_MAX = 1000.f;
+    const float F2_MIN = 700.f;
+    const float F2_MAX = 3000.f;
     auto vx = [&](float f2) { return VX + (int)(VW * (F2_MAX - f2) / (F2_MAX - F2_MIN)); };
     auto vy = [&](float f1) { return VY + (int)(VH * (f1 - F1_MIN) / (F1_MAX - F1_MIN)); };
 
@@ -1170,8 +1172,8 @@ static bool on_setcursor(HWND hwnd, LPARAM lp) {
     POINT pt;
     GetCursorPos(&pt);
     ScreenToClient(hwnd, &pt);
-    bool over_piano = (g_mode == Mode::FREE && piano_hit_test(pt) >= 0);
-    if (in_staff_select(pt) || PtInRect(&g_note_hit, pt) || over_piano) {
+    if (bool over_piano = (g_mode == Mode::FREE && piano_hit_test(pt) >= 0);
+        in_staff_select(pt) || PtInRect(&g_note_hit, pt) || over_piano) {
         SetCursor(LoadCursorW(nullptr, IDC_HAND));
         return true;
     }
